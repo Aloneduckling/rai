@@ -9,6 +9,6 @@
     "skipLibCheck": true
   },
   "include": [
-      "db/**/*.ts"
+      "src/db/**/*.ts"
   ]
 }
