@@ -16,7 +16,7 @@ const userRouter = express.Router();
     - Input Validation using zod
 */
 
-userRouter.post('/signup', authUser, signup);
+userRouter.post('/signup', signup);
 
 
 
