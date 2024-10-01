@@ -1,21 +1,22 @@
 import express, { Request, Response } from "express";
 import dotenv from 'dotenv';
-import prisma from "../db";
+import cors from 'cors'
+import cookieParser from 'cookie-parser'
+
+import userRouter from "./routes/userRoutes";
 
 dotenv.config();
 const app = express();
 
-/*
-    TODO
-    - Routes:
-        1. Signup
-        2. Signin
-        3. guest-registration
-        4. oauth signup
-    - Middlewares:
-        Authentication
-    - Input Validation using zod
-*/
+app.use(express.json());
+app.use(cors());
+app.use(cookieParser());
+
+app.use('/api/v1/user', userRouter);
+
+app.all('*', (req: Request, res: Response) => {
+    return res.status(404).json({ message: "Route Not found!" });
+});
 
 
-app.listen(3000, () => console.log('server running') );
+app.listen(process.env.PORT, () => console.log('server running') );
