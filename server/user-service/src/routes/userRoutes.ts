@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import authUser from '../middlewares/authUser';
-import { signup } from '../controllers/userControllers';
+import { signup, signin } from '../controllers/userControllers';
 
 const userRouter = express.Router();
 
@@ -18,6 +18,6 @@ const userRouter = express.Router();
 
 userRouter.post('/signup', signup);
 
-
+userRouter.post('/signin', signin);
 
 export default userRouter;
