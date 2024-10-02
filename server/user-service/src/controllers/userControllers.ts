@@ -56,3 +56,29 @@ export const signup = async (req: Request, res: Response) => {
     }
     
 }
+
+export const signin = async (req: Request, res: Response) => {
+    try {
+        const signinSchema = z.object({
+            email: z.string().email(),
+            password: z.string().min(6).max(32)
+        });
+        type signinUserSchema = z.infer<typeof signinSchema>;
+
+        const { error, data: signinData } = signinSchema.safeParse(req.body);
+
+        if(error){
+            return  res.status(400).json({ message: "invalid inputs" });
+        }
+
+        //fetch password from db
+        //match password
+        //generate auth and refresh token
+        //set token in cookies
+        //send a 200 response
+
+
+    } catch (error) {
+        
+    }
+}
