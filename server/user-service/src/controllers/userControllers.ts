@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
-
+import bcrypt from 'bcrypt';
 import prisma from "../db"
 
+
+//TODO: Add email verification on signup
 export const signup = async (req: Request, res: Response) => {
     try {
         const signupSchema = z.object({
@@ -21,10 +23,25 @@ export const signup = async (req: Request, res: Response) => {
             res.status(400).json({ message: "invalid inputs" });
         }
         
+        //check if the user exists or not
+        const isUser = await prisma.user.findFirst({
+            where: {
+                email: userData?.email
+            }
+        });
+
+        if(isUser){
+            return res.status(409).json({ message: "this email is already in use" });
+        }
+
+        //hash the password
+        const hashedPassword = await bcrypt.hash(userData?.password as string, 10);
+
         //add the data to the db
         const result = await prisma.user.create({
             data: {
-                ...userData as signupUserSchema
+                ...userData as signupUserSchema,
+                password: hashedPassword
             }
         });
 
@@ -38,13 +55,13 @@ export const signup = async (req: Request, res: Response) => {
         //set them in the cookies
         res.cookie('accessToken', accessToken, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            secure: process.env.NODE_ENV === "prod",
             sameSite: "strict"
         });
 
         res.cookie('refreshToken', refreshToken, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            secure: process.env.NODE_ENV === "prod",
             sameSite: "strict"
         });
         
@@ -71,14 +88,55 @@ export const signin = async (req: Request, res: Response) => {
             return  res.status(400).json({ message: "invalid inputs" });
         }
 
-        //fetch password from db
+    
+        
+
+        //fetch user from db
+        const userData = await prisma.user.findFirst({
+            where: {
+                email: signinData.email
+            }
+        })
+        
+        //check if the user exists or not
+        if(!userData?.email){
+            return res.status(404).json({
+                message: "user not found"
+            });
+        }
+
         //match password
+        const isValid = await bcrypt.compare(signinData.password, userData.password as string);
+        
+        if(!isValid){
+            return res.status(401).json({ message: "incorrect password" });
+        }
+        
         //generate auth and refresh token
-        //set token in cookies
+        const accessToken = jwt.sign({ userId: userData.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ userId: userData.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string, { expiresIn: '15m' });
+
+        //set them in the cookies
+        res.cookie('accessToken', accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+
+        
         //send a 200 response
 
+        return res.json({
+            message: "login success"
+        });
 
     } catch (error) {
-        
+        return res.status(500).json({ message: "internal server error" });
     }
 }
