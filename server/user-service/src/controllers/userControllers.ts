@@ -87,10 +87,7 @@ export const signin = async (req: Request, res: Response) => {
         if(error){
             return  res.status(400).json({ message: "invalid inputs" });
         }
-
-    
         
-
         //fetch user from db
         const userData = await prisma.user.findFirst({
             where: {
@@ -128,6 +125,7 @@ export const signin = async (req: Request, res: Response) => {
             secure: process.env.NODE_ENV === "prod",
             sameSite: "strict"
         });
+        
 
         
         //send a 200 response
@@ -140,3 +138,9 @@ export const signin = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "internal server error" });
     }
 }
+
+//TODO:
+// when the guest creates an account their guest account should be converted to the registered account
+// Implement the email verification on signup
+// Implement O-Auth login/sign-up
+// Test the routes
