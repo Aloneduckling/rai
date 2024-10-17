@@ -3,7 +3,9 @@ import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import prisma from "../db"
-
+import { transporter } from '../utils/nodemailer'
+import ejs from 'ejs';
+import path from 'path';
 
 //TODO: Add email verification on signup
 export const signup = async (req: Request, res: Response) => {
@@ -41,12 +43,28 @@ export const signup = async (req: Request, res: Response) => {
         const result = await prisma.user.create({
             data: {
                 ...userData as signupUserSchema,
-                password: hashedPassword
+                password: hashedPassword,
+                isGuest: false
             }
         });
 
-        //temp
-        console.log(result);
+
+        //send email verification
+        //TODO: test the email verification stuff;
+
+        //get the email template
+        const templatePath = path.join(__dirname, '../templates/emailVerification.ejs');
+
+        const emailHTML = await ejs.renderFile(templatePath);
+        
+        console.log(emailHTML);
+
+        const info = await transporter.sendMail({
+            from: `"Rai" <noreply@rai.com>`,
+            to: userData?.email,
+            subject: `Hi ${userData?.username} please verify your email`,
+            html: emailHTML
+        });
 
         //generate access token and refresh token
         const accessToken = jwt.sign({ userId: result.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
@@ -138,6 +156,9 @@ export const signin = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "internal server error" });
     }
 }
+
+
+
 
 //TODO:
 // when the guest creates an account their guest account should be converted to the registered account

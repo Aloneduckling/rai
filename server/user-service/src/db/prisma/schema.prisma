@@ -22,6 +22,7 @@ model User {
   googleID String?
   profilePicture String?
   isGuest Boolean @default(true)
+  isVerified Boolean @default(false)
   guestIP String?
 }
 // npx prisma db push
