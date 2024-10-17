@@ -1,15 +1,20 @@
-version: '3.7'
+version: '3.9'
 services:
-  mongodb_container:
-    # This image automatically creates a replica set required for transactions
-    image: prismagraphql/mongo-single-replica:4.4.3-bionic
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: prisma
-      INIT_WAIT_SEC: 3
+  user-service-db:
+    image: prismagraphql/mongo-single-replica:4.2.17-bionic
+
     ports:
       - 27018:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+      INIT_WAIT_SEC: 5
     volumes:
-      - user-service-db:/data/db
+      - user-service-volume:/data/db
+
 volumes:
-  user-service-db:
+  user-service-volume:
+
+# this image does not work currently, an issue can be opened or we can have a create a separate image
+# that will create a replica set. For now I will be using mongodb cloud as it offers replica set config
+# out of the box.
