@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import prisma from "../db"
 import { transporter } from '../utils/nodemailer'
 import ejs from 'ejs';
+import crypto from 'crypto';
 import path from 'path';
 
 //TODO: Add email verification on signup
@@ -50,21 +51,43 @@ export const signup = async (req: Request, res: Response) => {
 
 
         //send email verification
-        //TODO: test the email verification stuff;
+        
+        //create an OTP and save it in the DB, OTP would be a 4 digit string
+        const hexString = crypto.randomBytes(4);
+        //this will give us a random buffer of 4 bytes of hex numbers
+        //eg <Buffer b4 01 28 c1> => <Buffer 180 1 28 193>
+        //we will then mod each buffer byte with 10 to get the number
+        //using crypto for this because it generated better random numbers
+        
+        let OTP = "";
+        for(let i = 0; i < hexString.length; i++){
+            OTP += hexString[i] % 10;
+        }
+        //TODO:
+        //save this OTP in the DB along with the expiration time
+        //we will have to create an Account collection that will handle all this thing
+        //the User collection will handle all the user related stuff
 
         //get the email template
         const templatePath = path.join(__dirname, '../templates/emailVerification.ejs');
 
-        const emailHTML = await ejs.renderFile(templatePath);
+        const emailHTML = await ejs.renderFile(templatePath, {username: userData?.username, email: userData?.email, OTP});
         
-        console.log(emailHTML);
 
-        const info = await transporter.sendMail({
-            from: `"Rai" <noreply@rai.com>`,
-            to: userData?.email,
-            subject: `Hi ${userData?.username} please verify your email`,
-            html: emailHTML
+        setImmediate(async () => {
+            try {
+                await transporter.sendMail({
+                    from: "Rai",
+                    to: userData?.email,
+                    subject: `Hi ${userData?.username} please verify your email`,
+                    text: 'Please verify your email',
+                    html: emailHTML
+                });
+            } catch (error) {
+                console.log("error sending email", error);
+            }
         });
+
 
         //generate access token and refresh token
         const accessToken = jwt.sign({ userId: result.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
@@ -84,9 +107,10 @@ export const signup = async (req: Request, res: Response) => {
         });
         
         //send 201 code for succesfull login
-        return res.status(201).json({ message: "user created successfully" });
+        return res.status(201).json({ message: "Account created successfully, please verify your email" });
 
     } catch (error) {
+        console.log(error);
         return res.status(500).json({ message: "internal server error" });
     }
     
