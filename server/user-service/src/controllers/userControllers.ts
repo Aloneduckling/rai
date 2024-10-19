@@ -50,7 +50,7 @@ export const signup = async (req: Request, res: Response) => {
         });
 
 
-        //send email verification
+        //send email verification (should be a function in itself as it will be used again)
         
         //create an OTP and save it in the DB, OTP would be a 4 digit string
         const hexString = crypto.randomBytes(4);
@@ -68,16 +68,27 @@ export const signup = async (req: Request, res: Response) => {
         //we will have to create an Account collection that will handle all this thing
         //the User collection will handle all the user related stuff
 
+        const nowDate = new Date();
+        const expiaryTime = new Date( nowDate.getTime() + 3 * 60000 );
+
+        await prisma.account.create({
+            data: {
+                otp: OTP,
+                otpExpiry: expiaryTime,
+                userId: result.id
+            }
+        });
+
         //get the email template
         const templatePath = path.join(__dirname, '../templates/emailVerification.ejs');
 
-        const emailHTML = await ejs.renderFile(templatePath, {username: userData?.username, email: userData?.email, OTP});
+        const emailHTML = await ejs.renderFile(templatePath, {username: userData?.username, email: userData?.email, otp: OTP});
         
 
         setImmediate(async () => {
             try {
                 await transporter.sendMail({
-                    from: "Rai",
+                    from: "Rai <noreply@rai.shantanuk.software>",
                     to: userData?.email,
                     subject: `Hi ${userData?.username} please verify your email`,
                     text: 'Please verify your email',
