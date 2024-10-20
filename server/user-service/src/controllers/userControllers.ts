@@ -8,6 +8,10 @@ import ejs from 'ejs';
 import crypto from 'crypto';
 import path from 'path';
 
+//util imports
+import logger from "../utils/logger";
+
+
 //TODO: Add email verification on signup
 export const signup = async (req: Request, res: Response) => {
     try {
@@ -50,7 +54,7 @@ export const signup = async (req: Request, res: Response) => {
         });
 
 
-        //send email verification
+        //send email verification (should be a function in itself as it will be used again)
         
         //create an OTP and save it in the DB, OTP would be a 4 digit string
         const hexString = crypto.randomBytes(4);
@@ -68,23 +72,34 @@ export const signup = async (req: Request, res: Response) => {
         //we will have to create an Account collection that will handle all this thing
         //the User collection will handle all the user related stuff
 
+        const nowDate = new Date();
+        const expiaryTime = new Date( nowDate.getTime() + 3 * 60000 );
+
+        await prisma.account.create({
+            data: {
+                otp: OTP,
+                otpExpiry: expiaryTime,
+                userId: result.id
+            }
+        });
+
         //get the email template
         const templatePath = path.join(__dirname, '../templates/emailVerification.ejs');
 
-        const emailHTML = await ejs.renderFile(templatePath, {username: userData?.username, email: userData?.email, OTP});
+        const emailHTML = await ejs.renderFile(templatePath, {username: userData?.username, email: userData?.email, otp: OTP});
         
 
         setImmediate(async () => {
             try {
                 await transporter.sendMail({
-                    from: "Rai",
+                    from: "Rai <noreply@rai.shantanuk.software>",
                     to: userData?.email,
                     subject: `Hi ${userData?.username} please verify your email`,
                     text: 'Please verify your email',
                     html: emailHTML
                 });
             } catch (error) {
-                console.log("error sending email", error);
+                logger("error sending email", error);
             }
         });
 
@@ -110,7 +125,7 @@ export const signup = async (req: Request, res: Response) => {
         return res.status(201).json({ message: "Account created successfully, please verify your email" });
 
     } catch (error) {
-        console.log(error);
+        logger(error);
         return res.status(500).json({ message: "internal server error" });
     }
     
@@ -181,7 +196,57 @@ export const signin = async (req: Request, res: Response) => {
     }
 }
 
+//TODO: test this function and route
+export const verifyEmail = async (req: Request, res: Response) => {
+    try {
+        const otpValidationSchema = z.object({
+           id: z.string().length(24), //mongodb ObjectId is a 12 byte hex string or 24 char string
+           otp: z.string().length(4) //otp consists of 4 letters
+        });
 
+        const { error, data } = otpValidationSchema.safeParse(req.body);
+
+        if(error){
+            return res.status(400).json({ message: "invalid inputs" });
+        }
+
+        const dbOTP = await prisma.account.findFirst({
+            where: {
+                id: data.id
+            }
+        });
+
+        //check if the OTP is expired or not
+        const otpExpired = new Date(dbOTP?.otpExpiry as Date).getTime() > new Date().getTime();
+
+        if(dbOTP?.otp !== data.otp || otpExpired){
+            return res.status(400).json({ message: "OTP expired or invalid OTP entered, OTPs are valid for 3 minuets only" });
+        }
+
+        //Correct OTP entered, invalidate it in the db and verify the email
+        //we would have to use a prisma transaction here, I will use nested writes
+        await prisma.user.update({
+            where: {
+              id: data.id,
+            },
+            data: {
+              emailVerified: true,
+              Account: {
+                update: {
+                  otp: null,
+                  otpExpiry: null,
+                },
+              },
+            },
+        });
+
+        return res.status(200).json({ message: "Email verified successfully" });
+
+    } catch (error) {
+        logger(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+}
 
 
 //TODO:

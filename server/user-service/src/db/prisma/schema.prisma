@@ -13,17 +13,30 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//User model will contain all the data related to the User like email password username etc
 model User {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-  username String
-  password String?
-  email String?
-  name String?
-  googleID String?
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  username       String
+  password       String?
+  email          String?
+  name           String?
+  googleID       String?
   profilePicture String?
-  isGuest Boolean @default(true)
-  isVerified Boolean @default(false)
-  guestIP String?
+  isGuest        Boolean  @default(true)
+  emailVerified  Boolean  @default(false)
+  guestIP        String?
+  Account        Account?
 }
+
+//Account model will contain all the data related to login, signup like OTP etc.
+model Account {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String    @unique @db.ObjectId
+  otp       String?
+  otpExpiry DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
 // npx prisma db push
 // npx prisma generate
