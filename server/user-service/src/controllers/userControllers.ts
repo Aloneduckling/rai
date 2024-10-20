@@ -8,6 +8,10 @@ import ejs from 'ejs';
 import crypto from 'crypto';
 import path from 'path';
 
+//util imports
+import logger from "../utils/logger";
+
+
 //TODO: Add email verification on signup
 export const signup = async (req: Request, res: Response) => {
     try {
@@ -95,7 +99,7 @@ export const signup = async (req: Request, res: Response) => {
                     html: emailHTML
                 });
             } catch (error) {
-                console.log("error sending email", error);
+                logger("error sending email", error);
             }
         });
 
@@ -121,7 +125,7 @@ export const signup = async (req: Request, res: Response) => {
         return res.status(201).json({ message: "Account created successfully, please verify your email" });
 
     } catch (error) {
-        console.log(error);
+        logger(error);
         return res.status(500).json({ message: "internal server error" });
     }
     
@@ -192,7 +196,57 @@ export const signin = async (req: Request, res: Response) => {
     }
 }
 
+//TODO: test this function and route
+export const verifyEmail = async (req: Request, res: Response) => {
+    try {
+        const otpValidationSchema = z.object({
+           id: z.string().length(24), //mongodb ObjectId is a 12 byte hex string or 24 char string
+           otp: z.string().length(4) //otp consists of 4 letters
+        });
 
+        const { error, data } = otpValidationSchema.safeParse(req.body);
+
+        if(error){
+            return res.status(400).json({ message: "invalid inputs" });
+        }
+
+        const dbOTP = await prisma.account.findFirst({
+            where: {
+                id: data.id
+            }
+        });
+
+        //check if the OTP is expired or not
+        const otpExpired = new Date(dbOTP?.otpExpiry as Date).getTime() > new Date().getTime();
+
+        if(dbOTP?.otp !== data.otp || otpExpired){
+            return res.status(400).json({ message: "OTP expired or invalid OTP entered, OTPs are valid for 3 minuets only" });
+        }
+
+        //Correct OTP entered, invalidate it in the db and verify the email
+        //we would have to use a prisma transaction here, I will use nested writes
+        await prisma.user.update({
+            where: {
+              id: data.id,
+            },
+            data: {
+              emailVerified: true,
+              Account: {
+                update: {
+                  otp: null,
+                  otpExpiry: null,
+                },
+              },
+            },
+        });
+
+        return res.status(200).json({ message: "Email verified successfully" });
+
+    } catch (error) {
+        logger(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+}
 
 
 //TODO:
