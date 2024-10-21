@@ -3,13 +3,13 @@ import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import prisma from "../db"
-import { transporter } from '../utils/nodemailer'
-import ejs from 'ejs';
 import crypto from 'crypto';
-import path from 'path';
+
 
 //util imports
 import logger from "../utils/logger";
+import { RequestProtected } from "../middlewares/authUser";
+import sendVerificationEmail from "../utils/sendVerificationEmail";
 
 
 //TODO: Add email verification on signup
@@ -83,26 +83,15 @@ export const signup = async (req: Request, res: Response) => {
             }
         });
 
-        //get the email template
-        const templatePath = path.join(__dirname, '../templates/emailVerification.ejs');
+        const params = {
+            username: userData?.username as string,
+            email: userData?.email as string,
+            OTP
+        };
 
-        const emailHTML = await ejs.renderFile(templatePath, {username: userData?.username, email: userData?.email, otp: OTP});
-        
 
-        setImmediate(async () => {
-            try {
-                await transporter.sendMail({
-                    from: "Rai <noreply@rai.shantanuk.software>",
-                    to: userData?.email,
-                    subject: `Hi ${userData?.username} please verify your email`,
-                    text: 'Please verify your email',
-                    html: emailHTML
-                });
-            } catch (error) {
-                logger("error sending email", error);
-            }
-        });
-
+        //send verification email (email with OTP)
+        sendVerificationEmail(params);
 
         //generate access token and refresh token
         const accessToken = jwt.sign({ userId: result.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
@@ -137,7 +126,6 @@ export const signin = async (req: Request, res: Response) => {
             email: z.string().email(),
             password: z.string().min(6).max(32)
         });
-        type signinUserSchema = z.infer<typeof signinSchema>;
 
         const { error, data: signinData } = signinSchema.safeParse(req.body);
 
@@ -197,29 +185,28 @@ export const signin = async (req: Request, res: Response) => {
 }
 
 //TODO: test this function and route
-export const verifyEmail = async (req: Request, res: Response) => {
+export const verifyEmail = async (req: RequestProtected, res: Response) => {
     try {
-        const otpValidationSchema = z.object({
-           id: z.string().length(24), //mongodb ObjectId is a 12 byte hex string or 24 char string
-           otp: z.string().length(4) //otp consists of 4 letters
-        });
+        const userId = req.userId;
+        const otpValidationSchema = z.string().length(4) //otp consists of 4 letters
 
-        const { error, data } = otpValidationSchema.safeParse(req.body);
+        const { error, data: otp } = otpValidationSchema.safeParse(req.body.otp);
 
         if(error){
+            logger(error);
             return res.status(400).json({ message: "invalid inputs" });
         }
 
         const dbOTP = await prisma.account.findFirst({
             where: {
-                id: data.id
+                userId: userId
             }
         });
-
+        
         //check if the OTP is expired or not
-        const otpExpired = new Date(dbOTP?.otpExpiry as Date).getTime() > new Date().getTime();
+        const otpExpired = new Date(dbOTP?.otpExpiry as Date).getTime() < new Date().getTime();
 
-        if(dbOTP?.otp !== data.otp || otpExpired){
+        if(dbOTP?.otp !== otp || otpExpired){
             return res.status(400).json({ message: "OTP expired or invalid OTP entered, OTPs are valid for 3 minuets only" });
         }
 
@@ -227,7 +214,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
         //we would have to use a prisma transaction here, I will use nested writes
         await prisma.user.update({
             where: {
-              id: data.id,
+              id: userId,
             },
             data: {
               emailVerified: true,
@@ -241,6 +228,58 @@ export const verifyEmail = async (req: Request, res: Response) => {
         });
 
         return res.status(200).json({ message: "Email verified successfully" });
+
+    } catch (error) {
+        logger(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+}
+
+//re-send otp for verification
+export const sendOTP = async (req: RequestProtected, res: Response) => {
+    try {
+        const userId = req.userId;
+        
+        //get user details
+        const userData = await prisma.user.findFirst({
+            where: {
+                id: userId
+            }
+        });
+
+        //generate OTP
+        const hexString = crypto.randomBytes(4);
+
+        let OTP = "";
+        for(let i = 0; i < hexString.length; i++){
+            OTP += hexString[i] % 10;
+        }
+
+        const nowDate = new Date();
+        const expiaryTime = new Date( nowDate.getTime() + 3 * 60000 );
+
+        //create a new OTP
+
+        await prisma.account.update({
+            where: {
+                userId: userId
+            },
+            data: {
+                otp: OTP,
+                otpExpiry: expiaryTime
+            }
+        });
+
+        //sendVerificationEmail
+        const params = {
+            username: userData?.username as string,
+            email: userData?.email as string,
+            OTP
+        };
+
+        sendVerificationEmail(params);
+
+        return res.status(200).json({ message: "OTP sent to the email successfully" });
 
     } catch (error) {
         logger(error);
