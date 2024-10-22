@@ -19,7 +19,6 @@ model User {
   username       String
   password       String?
   email          String?
-  name           String?
   googleID       String?
   profilePicture String?
   isGuest        Boolean  @default(true)
