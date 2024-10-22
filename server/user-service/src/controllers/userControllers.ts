@@ -287,6 +287,13 @@ export const sendOTP = async (req: RequestProtected, res: Response) => {
     }
 }
 
+export const signinWithGoogle = async (req: Request, res: Response) => {
+    const userId = req.user;
+    console.log(userId);
+    return res.send('ho gaya end yaha ka');
+
+}
+
 
 //TODO:
 // when the guest creates an account their guest account should be converted to the registered account

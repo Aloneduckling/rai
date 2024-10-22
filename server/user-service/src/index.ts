@@ -13,6 +13,9 @@ app.use(cors());
 app.use(cookieParser());
 
 app.use('/api/v1/user', userRouter);
+app.get('/hello', (req, res) => {
+    return res.send("hello bhai");
+})
 
 app.all('*', (req: Request, res: Response) => {
     return res.status(404).json({ message: "Route Not found!" });
