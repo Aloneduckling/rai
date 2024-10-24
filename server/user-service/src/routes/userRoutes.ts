@@ -1,6 +1,6 @@
 import express from 'express';
 import authUser from '../middlewares/authUser';
-import { signup, signin, verifyEmail, sendOTP, signinWithGoogle } from '../controllers/userControllers';
+import { signup, signin, verifyEmail, sendOTP, signinWithGoogle, createGuest } from '../controllers/userControllers';
 import passport from 'passport';
 import '../utils/passport'; //passport config
 
@@ -36,5 +36,7 @@ userRouter.get('/auth/google/callback', passport.authenticate('google', {
 }), signinWithGoogle);
 
 userRouter.post('/signin', signin);
+
+userRouter.post('/guest', createGuest);
 
 export default userRouter;

@@ -294,6 +294,45 @@ export const signinWithGoogle = async (req: Request, res: Response) => {
 
 }
 
+export const createGuest = async (req: Request, res: Response) => {
+    try {
+        //extract the IP address
+        const guestIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        
+        const guestUsername = crypto.randomBytes(3).toString('hex');
+
+        const guest = await prisma.user.create({
+            data: {
+                guestIP: guestIP as string,
+                username: guestUsername
+            }
+        });
+
+        //create refresh token and auth token
+        const accessToken = jwt.sign({ userId: guest.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ userId: guest.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        
+        //set them in the cookies
+        res.cookie('accessToken', accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+
+        return res.status(201).json({ message: "logged in as guest, if you want your account saved please create an account" });
+
+    } catch (error) {
+        logger(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+}
+
 
 //TODO:
 // when the guest creates an account their guest account should be converted to the registered account
