@@ -287,13 +287,6 @@ export const sendOTP = async (req: RequestProtected, res: Response) => {
     }
 }
 
-export const signinWithGoogle = async (req: Request, res: Response) => {
-    const userId = req.user;
-    console.log(userId);
-    return res.send('ho gaya end yaha ka');
-
-}
-
 export const createGuest = async (req: Request, res: Response) => {
     try {
         //extract the IP address
