@@ -4,15 +4,16 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import prisma from "../db"
 import crypto from 'crypto';
-
+import axios from 'axios'
 
 //util imports
 import logger from "../utils/logger";
 import { RequestProtected } from "../middlewares/authUser";
 import sendVerificationEmail from "../utils/sendVerificationEmail";
+import { OAuth2Client } from "google-auth-library";
 
 
-//TODO: Add email verification on signup
+
 export const signup = async (req: Request, res: Response) => {
     try {
         const signupSchema = z.object({
@@ -67,10 +68,7 @@ export const signup = async (req: Request, res: Response) => {
         for(let i = 0; i < hexString.length; i++){
             OTP += hexString[i] % 10;
         }
-        //TODO:
-        //save this OTP in the DB along with the expiration time
-        //we will have to create an Account collection that will handle all this thing
-        //the User collection will handle all the user related stuff
+
 
         const nowDate = new Date();
         const expiaryTime = new Date( nowDate.getTime() + 3 * 60000 );
@@ -95,7 +93,7 @@ export const signup = async (req: Request, res: Response) => {
 
         //generate access token and refresh token
         const accessToken = jwt.sign({ userId: result.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
-        const refreshToken = jwt.sign({ userId: result.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ userId: result.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string);
 
         //set them in the cookies
         res.cookie('accessToken', accessToken, {
@@ -156,7 +154,7 @@ export const signin = async (req: Request, res: Response) => {
         
         //generate auth and refresh token
         const accessToken = jwt.sign({ userId: userData.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
-        const refreshToken = jwt.sign({ userId: userData.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ userId: userData.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string);
 
         //set them in the cookies
         res.cookie('accessToken', accessToken, {
@@ -184,7 +182,6 @@ export const signin = async (req: Request, res: Response) => {
     }
 }
 
-//TODO: test this function and route
 export const verifyEmail = async (req: RequestProtected, res: Response) => {
     try {
         const userId = req.userId;
@@ -303,7 +300,7 @@ export const createGuest = async (req: Request, res: Response) => {
 
         //create refresh token and auth token
         const accessToken = jwt.sign({ userId: guest.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
-        const refreshToken = jwt.sign({ userId: guest.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ userId: guest.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string);
         
         //set them in the cookies
         res.cookie('accessToken', accessToken, {
@@ -326,9 +323,150 @@ export const createGuest = async (req: Request, res: Response) => {
     }
 }
 
+export const generateGoogleAuthURL = async (req: Request, res: Response) => {
+    try {
+        res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL);
+        res.header('Reffer-Policy', 'no-reffer-when-downgrade');
+    
+        const redirectURL = `${process.env.BACKEND_URL}/api/v1/user/auth/google/callback`;
+    
+        const oAuth2Client = new OAuth2Client(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            redirectURL
+        );
+    
+        const authorizeURL = oAuth2Client.generateAuthUrl({
+            access_type: 'offline',
+            scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+            prompt: 'consent'
+        });
+    
+        res.status(200).json({ url: authorizeURL });
+    } catch (error) {
+        logger(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+    
+}
+
+export const googleOAuthCallback = async (req: Request, res: Response) => {
+    const code = req.query.code;
+    try {
+        const redirectURL = `${process.env.BACKEND_URL}/api/v1/user/auth/google/callback`;
+
+        const oAuth2Client = new OAuth2Client(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            redirectURL
+        );
+
+        const oauthToken = await oAuth2Client.getToken(code as string);
+        oAuth2Client.setCredentials(oauthToken.tokens);
+        const user = oAuth2Client.credentials;
+
+
+        const response = await axios.get(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${user.access_token}`);
+        
+        //save the token wherever you need
+        //data.data has the data needed
+        /*
+        data.data =>
+        {
+            "sub": "",
+            "name": "",
+            "given_name": "",
+            "family_name": "=",
+            "picture": "",
+            "email": "",
+            "email_verified": true
+        }
+        */
+
+        interface UserGoogleOAuthData {
+            sub: string;
+            name: string;
+            given_name: string;
+            family_name: string;
+            picture: string;
+            email: string;
+            email_verified: boolean;
+        }
+
+        const userData: UserGoogleOAuthData = response.data;
+
+        //check if the user exists or not
+        let foundUser = await prisma.user.findFirst({
+            where: {
+                email: userData.email
+            }
+        });
+
+        let newUser: typeof foundUser | undefined;
+
+        if(!foundUser){
+            //create a new user
+            newUser = await prisma.user.create({
+                data: {
+                    username: userData.name,
+                    email: userData.email ?? null,
+                    googleID: userData.sub,
+                    profilePicture: userData.picture,
+                    emailVerified: true,
+                    isGuest: false
+                }
+            });
+
+        }else{
+            foundUser = await prisma.user.update({
+                where: {
+                    id: foundUser.id
+                },
+                data: {
+                    googleID: userData.sub,
+                    email: userData.email,
+                    emailVerified: true,
+                    profilePicture: userData.picture,
+                    isGuest: false
+                }
+            });
+        }
+        
+
+        //extract the id and then create a token
+        const userId = newUser ? newUser.id : foundUser?.id;
+
+
+        //generate auth and refresh token
+        const accessToken = jwt.sign({ userId }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_TOKEN_SECRET as string);
+
+        //set them in the cookies
+        res.cookie('accessToken', accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+        
+        if(newUser){
+            return res.status(201).json({ message: "signedup successfully" });
+        }
+
+        return res.status(200).json({ message: "logged in successfully" });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+
+}
+
 
 //TODO:
 // when the guest creates an account their guest account should be converted to the registered account
-// Implement the email verification on signup
-// Implement O-Auth login/sign-up
-// Test the routes
