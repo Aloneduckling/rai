@@ -10,7 +10,8 @@ import axios from 'axios'
 import logger from "../utils/logger";
 import { RequestProtected } from "../middlewares/authUser";
 import sendVerificationEmail from "../utils/sendVerificationEmail";
-import { OAuth2Client } from "google-auth-library";
+import { auth, OAuth2Client } from "google-auth-library";
+import { User } from "@prisma/client";
 
 
 
@@ -38,6 +39,8 @@ export const signup = async (req: Request, res: Response) => {
             }
         });
 
+        
+
         if(isUser){
             return res.status(409).json({ message: "this email is already in use" });
         }
@@ -45,14 +48,50 @@ export const signup = async (req: Request, res: Response) => {
         //hash the password
         const hashedPassword = await bcrypt.hash(userData?.password as string, 10);
 
-        //add the data to the db
-        const result = await prisma.user.create({
-            data: {
-                ...userData as signupUserSchema,
-                password: hashedPassword,
-                isGuest: false
+        //check if the user is guest or not
+        //the guest user will have a cookie
+        const { authToken } = req.cookies;
+        let result: User | null = null;
+        try {
+            //if the user had a guest account then do the following
+            const { userId } = jwt.verify(authToken, process.env.JWT_SECRET as string) as { userId: string };
+            
+            //check if the user exists or not
+            const isGuestValid = await prisma.user.findFirst({
+                where: {
+                    id: userId
+                }
+            });
+
+            if(isGuestValid){
+                //update the details of the guest account
+                result = await prisma.user.update({
+                    where: {
+                        id: userId
+                    },
+                    data: {
+                        ...userData as signupUserSchema,
+                        password: hashedPassword,
+                        isGuest: false
+                    }
+                });
             }
-        });
+
+        } catch (error) {
+            logger(error);
+            result = null;
+        }
+
+        //add the data to the db
+        if(!result){
+            result = await prisma.user.create({
+                data: {
+                    ...userData as signupUserSchema,
+                    password: hashedPassword,
+                    isGuest: false
+                }
+            });
+        }
 
 
         //send email verification (should be a function in itself as it will be used again)
@@ -287,6 +326,7 @@ export const sendOTP = async (req: RequestProtected, res: Response) => {
 export const createGuest = async (req: Request, res: Response) => {
     try {
         //extract the IP address
+        // TODO: Study and refine the guestIP logic for rate limiting
         const guestIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
         
         const guestUsername = crypto.randomBytes(3).toString('hex');
@@ -298,9 +338,10 @@ export const createGuest = async (req: Request, res: Response) => {
             }
         });
 
-        //create refresh token and auth token
-        const accessToken = jwt.sign({ userId: guest.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
-        const refreshToken = jwt.sign({ userId: guest.id }, process.env.JWT_REFRESH_TOKEN_SECRET as string);
+        //create auth token only for the guest account
+        //this authToken would act as an identifier for the guest account
+        const accessToken = jwt.sign({ userId: guest.id }, process.env.JWT_AUTH_TOKEN_SECRET as string);
+        
         
         //set them in the cookies
         res.cookie('accessToken', accessToken, {
@@ -309,11 +350,6 @@ export const createGuest = async (req: Request, res: Response) => {
             sameSite: "strict"
         });
 
-        res.cookie('refreshToken', refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "prod",
-            sameSite: "strict"
-        });
 
         return res.status(201).json({ message: "logged in as guest, if you want your account saved please create an account" });
 
@@ -370,19 +406,6 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
         
         //save the token wherever you need
         //data.data has the data needed
-        /*
-        data.data =>
-        {
-            "sub": "",
-            "name": "",
-            "given_name": "",
-            "family_name": "=",
-            "picture": "",
-            "email": "",
-            "email_verified": true
-        }
-        */
-
         interface UserGoogleOAuthData {
             sub: string;
             name: string;
@@ -395,17 +418,48 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
 
         const userData: UserGoogleOAuthData = response.data;
 
-        //check if the user exists or not
-        let foundUser = await prisma.user.findFirst({
-            where: {
-                email: userData.email
-            }
-        });
+        //check if the guest account is present or not
+        const { authToken } = req.cookies;
+        let foundUser: User | null = null; 
 
-        let newUser: typeof foundUser | undefined;
+        //this bool variable is used to fine tune the correct response code to be sent to the user
+        let wasGuest = false;
+        try {
+            const { userId } = jwt.verify(authToken, process.env.JWT_SECRET as string) as { userId: string };
+            //do the logic here
+            //find the account
+            const isGuestUser = await prisma.user.findFirst({
+                where: {
+                    id: userId
+                }
+            });
+
+            if(isGuestUser){
+                //update the data if we have a guest account
+                foundUser = isGuestUser;
+                wasGuest = true;
+            }
+
+        } catch (error) {
+            logger(error);
+            foundUser = null;
+        }
+
+        //binding the account created using email with the oauth account
+        //check if the user exists or not
+        if(!foundUser){
+            //if the user is not a guest then check if they are registered with an email
+            foundUser = await prisma.user.findFirst({
+                where: {
+                    email: userData.email
+                }
+            });
+        }
+
+        let newUser: User | null = null;
 
         if(!foundUser){
-            //create a new user
+            //if user not registered with email or user not guest then create a new user
             newUser = await prisma.user.create({
                 data: {
                     username: userData.name,
@@ -418,6 +472,7 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
             });
 
         }else{
+            //else update the user's profile and fill in the data obtained from OAuth
             foundUser = await prisma.user.update({
                 where: {
                     id: foundUser.id
@@ -454,8 +509,8 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
             sameSite: "strict"
         });
         
-        if(newUser){
-            return res.status(201).json({ message: "signedup successfully" });
+        if(newUser || wasGuest){
+            return res.status(201).json({ message: "signed up successfully" });
         }
 
         return res.status(200).json({ message: "logged in successfully" });
