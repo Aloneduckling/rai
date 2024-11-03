@@ -50,11 +50,11 @@ export const signup = async (req: Request, res: Response) => {
 
         //check if the user is guest or not
         //the guest user will have a cookie
-        const { authToken } = req.cookies;
+        const { accessToken: authToken } = req.cookies;
         let result: User | null = null;
         try {
             //if the user had a guest account then do the following
-            const { userId } = jwt.verify(authToken, process.env.JWT_SECRET as string) as { userId: string };
+            const { userId } = jwt.verify(authToken, process.env.JWT_AUTH_TOKEN_SECRET as string) as { userId: string };
             
             //check if the user exists or not
             const isGuestValid = await prisma.user.findFirst({
@@ -72,7 +72,8 @@ export const signup = async (req: Request, res: Response) => {
                     data: {
                         ...userData as signupUserSchema,
                         password: hashedPassword,
-                        isGuest: false
+                        isGuest: false,
+                        guestIP: null
                     }
                 });
             }
@@ -377,7 +378,7 @@ export const generateGoogleAuthURL = async (req: Request, res: Response) => {
             scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
             prompt: 'consent'
         });
-    
+
         res.status(200).json({ url: authorizeURL });
     } catch (error) {
         logger(error);
@@ -419,13 +420,13 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
         const userData: UserGoogleOAuthData = response.data;
 
         //check if the guest account is present or not
-        const { authToken } = req.cookies;
+        const { accessToken: authToken } = req.cookies;
         let foundUser: User | null = null; 
 
         //this bool variable is used to fine tune the correct response code to be sent to the user
         let wasGuest = false;
         try {
-            const { userId } = jwt.verify(authToken, process.env.JWT_SECRET as string) as { userId: string };
+            const { userId } = jwt.verify(authToken, process.env.JWT_AUTH_TOKEN_SECRET as string) as { userId: string };
             //do the logic here
             //find the account
             const isGuestUser = await prisma.user.findFirst({
@@ -482,7 +483,8 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
                     email: userData.email,
                     emailVerified: true,
                     profilePicture: userData.picture,
-                    isGuest: false
+                    isGuest: false,
+                    guestIP: null
                 }
             });
         }
