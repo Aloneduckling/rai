@@ -419,48 +419,19 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
 
         const userData: UserGoogleOAuthData = response.data;
 
-        //check if the guest account is present or not
-        const { accessToken: authToken } = req.cookies;
-        let foundUser: User | null = null; 
-
-        //this bool variable is used to fine tune the correct response code to be sent to the user
-        let wasGuest = false;
-        try {
-            const { userId } = jwt.verify(authToken, process.env.JWT_AUTH_TOKEN_SECRET as string) as { userId: string };
-            //do the logic here
-            //find the account
-            const isGuestUser = await prisma.user.findFirst({
-                where: {
-                    id: userId
-                }
-            });
-
-            if(isGuestUser){
-                //update the data if we have a guest account
-                foundUser = isGuestUser;
-                wasGuest = true;
-            }
-
-        } catch (error) {
-            logger(error);
-            foundUser = null;
-        }
-
-        //binding the account created using email with the oauth account
-        //check if the user exists or not
-        if(!foundUser){
-            //if the user is not a guest then check if they are registered with an email
-            foundUser = await prisma.user.findFirst({
-                where: {
-                    email: userData.email
-                }
-            });
-        }
-
+        let foundUser: User | null = null;
         let newUser: User | null = null;
 
+        //check if they are registered with an email
+        foundUser = await prisma.user.findFirst({
+            where: {
+                email: userData.email
+            }
+        });
+        
+
         if(!foundUser){
-            //if user not registered with email or user not guest then create a new user
+            //if user not registered with email then create a new user
             newUser = await prisma.user.create({
                 data: {
                     username: userData.name,
@@ -511,7 +482,7 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
             sameSite: "strict"
         });
         
-        if(newUser || wasGuest){
+        if(newUser){
             return res.status(201).json({ message: "signed up successfully" });
         }
 
@@ -523,7 +494,3 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
     }
 
 }
-
-
-//TODO:
-// when the guest creates an account their guest account should be converted to the registered account
