@@ -227,6 +227,7 @@ export const verifyEmail = async (req: RequestProtected, res: Response) => {
         const userId = req.userId;
         const otpValidationSchema = z.string().length(4) //otp consists of 4 letters
 
+        //input validation
         const { error, data: otp } = otpValidationSchema.safeParse(req.body.otp);
 
         if(error){
@@ -243,11 +244,16 @@ export const verifyEmail = async (req: RequestProtected, res: Response) => {
         //check if the OTP is expired or not
         const otpExpired = new Date(dbOTP?.otpExpiry as Date).getTime() < new Date().getTime();
 
+        //if otp is expired or wrong otp has been entered
         if(dbOTP?.otp !== otp || otpExpired){
             return res.status(400).json({ message: "OTP expired or invalid OTP entered, OTPs are valid for 3 minuets only" });
         }
 
         //Correct OTP entered, invalidate it in the db and verify the email
+        //Should we set the otp and otpExpiary to null? or should we delete the entry.
+        //If i want to limit the number of OTPs then I have to keep the track of the requested OTPs
+        //For this I can use redis. I can use a mixture of both. Redis for keeping count of OTP requests
+        //and Database to store the OTPs. I will set it to null later
         //we would have to use a prisma transaction here, I will use nested writes
         await prisma.user.update({
             where: {
@@ -275,6 +281,13 @@ export const verifyEmail = async (req: RequestProtected, res: Response) => {
 //re-send otp for verification
 export const sendOTP = async (req: RequestProtected, res: Response) => {
     try {
+        //TODO: request 5 OTPs in 30 mins, invalidate old OTPs by setting them null
+        //redis will keep the count of OTPs requested in last 30mins and when we hit the 30 min mark
+        //using rate limiting in memory here(☝️) instead of redis store
+        //we will invalidate the OTP count
+
+        
+
         const userId = req.userId;
         
         //get user details
@@ -283,6 +296,15 @@ export const sendOTP = async (req: RequestProtected, res: Response) => {
                 id: userId
             }
         });
+
+        if(!userData) {
+            return res.status(404).json({ message: "user not found" });
+        }
+
+        //if user verified then don't send the OTP
+        if(userData.emailVerified){
+            return res.status(409).json({ message: "email already verified" });
+        }
 
         //generate OTP
         const hexString = crypto.randomBytes(4);
@@ -296,7 +318,8 @@ export const sendOTP = async (req: RequestProtected, res: Response) => {
         const expiaryTime = new Date( nowDate.getTime() + 3 * 60000 );
 
         //create a new OTP
-
+        //we are overwriting the previous OTP, this will ensure that only ONE otp is assigned at
+        //a given moment for a user
         await prisma.account.update({
             where: {
                 userId: userId
@@ -493,4 +516,26 @@ export const googleOAuthCallback = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "internal server error" });
     }
 
+}
+
+export const logout = async (req: Request, res: Response) => {
+    try {
+        res.clearCookie('authToken', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+        res.clearCookie('refreshToken', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "prod",
+            sameSite: "strict"
+        });
+
+        return res.status(204).json();
+
+    } catch (error) {
+        logger(error);
+        return res.status(500).json({ message: "internal server error" });
+    }
+    
 }

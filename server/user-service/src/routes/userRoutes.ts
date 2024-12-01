@@ -1,7 +1,10 @@
 import express from 'express';
 import authUser from '../middlewares/authUser';
-import { signup, signin, verifyEmail, sendOTP, createGuest, generateGoogleAuthURL, googleOAuthCallback } from '../controllers/userControllers';
+import limiter from '../middlewares/ratelimiter';
+import { signup, signin, verifyEmail, sendOTP, createGuest, generateGoogleAuthURL, googleOAuthCallback, logout } from '../controllers/userControllers';
 const userRouter = express.Router();
+
+userRouter.use('/otp', limiter);
 
 /*
     TODO
@@ -29,5 +32,7 @@ userRouter.get('/auth/google/callback', googleOAuthCallback);
 userRouter.post('/signin', signin);
 
 userRouter.post('/guest', createGuest);
+
+userRouter.post('/logout', logout);
 
 export default userRouter;
