@@ -10,5 +10,6 @@
   },
   "include": [
       "src/db/**/*.ts"
-  ]
+  ],
+  "exclude": ["node_modules"]
 }
