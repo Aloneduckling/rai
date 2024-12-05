@@ -21,5 +21,4 @@ app.all('*', (req: Request, res: Response) => {
     return res.status(404).json({ message: "Route Not found!" });
 });
 
-
-app.listen(process.env.PORT, () => console.log('server running') );
+export default app;
