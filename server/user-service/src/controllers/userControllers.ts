@@ -29,7 +29,7 @@ export const signup = async (req: Request, res: Response) => {
         const { error, data: userData } = signupSchema.safeParse(req.body);
 
         if(error){
-            res.status(400).json({ message: "invalid inputs" });
+            return res.status(400).json({ message: "invalid inputs" });
         }
         
         //check if the user exists or not
@@ -129,7 +129,9 @@ export const signup = async (req: Request, res: Response) => {
 
 
         //send verification email (email with OTP)
-        sendVerificationEmail(params);
+        if(process.env.NODE_ENV !== 'test'){
+            sendVerificationEmail(params);
+        }
 
         //generate access token and refresh token
         const accessToken = jwt.sign({ userId: result.id }, process.env.JWT_AUTH_TOKEN_SECRET as string, { expiresIn: '15m' });
@@ -337,7 +339,10 @@ export const sendOTP = async (req: RequestProtected, res: Response) => {
             OTP
         };
 
-        sendVerificationEmail(params);
+       
+        if(process.env.NODE_ENV !== 'test'){
+            sendVerificationEmail(params);
+        }
 
         return res.status(200).json({ message: "OTP sent to the email successfully" });
 

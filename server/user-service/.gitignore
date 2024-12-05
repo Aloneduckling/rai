@@ -25,3 +25,7 @@ dist-ssr
 
 #credentials
 .env
+.env.test
+
+#unit test files
+coverage
