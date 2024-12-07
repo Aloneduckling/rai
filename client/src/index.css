@@ -1,3 +1,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+body{
+    padding: 48px;
+    background-image: url('./assets/background_landscape.png');
+    background-size: cover;
+    background-position: center;
+}
